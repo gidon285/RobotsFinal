@@ -1,51 +1,34 @@
 import cv2
-import os
 from pyodm import Node, exceptions
 import os
 import sys
-
+import extract_photos_Cython as cython
 # run with: docker run -ti -p 3000:3000 opendronemap/nodeodm
- # pip install openCV-python 
+# pip install openCV-python 
 sys.path.append('..')
-  
-def getFrame(sec, cam, count): 
-    cam.set(cv2.CAP_PROP_POS_MSEC,sec*1000) 
-    hasFrames,image = cam.read() 
-    if hasFrames: 
-        name = './data/frame' + str(count) + '.jpg'
-        cv2.imwrite(name, image)     # save frame as JPG file 
-    return hasFrames 
 
-def get_images_from_vedio(address:str, frameRate:int):
-    cam = cv2.VideoCapture(address)
+def produce_images(address:str, frameRate:float, count:int, cam):
     try:
         if not os.path.exists('data'):
             os.makedirs('data')
     except OSError:
         print ('Error: Creating directory of data')
 
-    sec ,c = 0, 0
-    success = getFrame(sec, cam, c) 
+    sec = 0
+    success = cython.getFrame(sec, cam, count) 
     while success: 
-        c += 1
+        count += 1
         sec = sec + frameRate 
         sec = round(sec, 2) 
-        success = getFrame(sec, cam, c) 
-        
+        success = cython.getFrame(sec, cam, count) 
 
     cam.release()
     cv2.destroyAllWindows()
 
-
-
-
-
-def odm():   
-    tmp=os.listdir("data")
-    list_img=[]
-    for img_name in tmp:
-        list_img.append("data/"+img_name)
-    print(list_img)
+def consume_images(start:int , end:int):
+    list_img = []
+    for index in range(start, end):
+        list_img.append("data/frame"+str(index)+".jpg")
     node = Node("localhost", 3000)
     try:
         # Start a task
@@ -57,33 +40,36 @@ def odm():
             # This will block until the task is finished
             # or will raise an exception
             task.wait_for_completion()
-
             print("Task completed, downloading results...")
-
             # Retrieve results
             task.download_assets("./results")
-
             print("Assets saved in ./results (%s)" % os.listdir("./results"))
-
             # Restart task and this time compute dtm
-            task.restart({'dtm': True})
-            task.wait_for_completion()
 
-            print("Task completed, downloading results...")
-
-            task.download_assets("./results_with_dtm")
-
-            print("Assets saved in ./results_with_dtm (%s)" % os.listdir("./results_with_dtm"))
+            """second time - possibly not necessary"""
+            # task.restart({'dtm': True})
+            # task.wait_for_completion()
+            # print("Task completed, downloading results...")
+            # task.download_assets("./results_with_dtm")
+            # print("Assets saved in ./results_with_dtm (%s)" % os.listdir("./results_with_dtm"))
         except exceptions.TaskFailedError as e:
             print("\n".join(task.output()))
-
     except exceptions.NodeConnectionError as e:
         print("Cannot connect: %s" % e)
     except exceptions.NodeResponseError as e:
         print("Error: %s" % e)
 
 if __name__ == "__main__":
+
+    # constants
     address = dir_path = os.path.dirname(os.path.realpath(__file__)) +"\\video.mp4"
-    # frameRate=  0.25
-    # get_images_from_vedio(address, frameRate)
-    odm()
+    cam = cv2.VideoCapture(address)
+    
+    # calculations
+    fps = cam.get(cv2.CAP_PROP_FPS)
+    frame_count = int(cam.get(cv2.CAP_PROP_FRAME_COUNT))
+    duration, chunk = frame_count/fps, 25
+    myframerate = duration / (duration * chunk)
+
+    produce_images(address, 0.5, 0, cam)
+    consume_images(0,12)
